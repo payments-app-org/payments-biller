@@ -1,0 +1,17 @@
+server:
+  port: 8087
+
+spring:
+  application:
+    name: biller
+  datasource:
+    url: ${DB_URL:jdbc:postgresql://localhost:5432/payments}
+    username: ${DB_USER:payments}
+    password: ${DB_PASSWORD:payments}
+    # search_path соединения — своя схема (создаётся в infra/postgres/init.sql)
+    hikari:
+      schema: biller
+  liquibase:
+    change-log: classpath:db/changelog/db.changelog-master.yaml
+    default-schema: biller
+    liquibase-schema: biller
