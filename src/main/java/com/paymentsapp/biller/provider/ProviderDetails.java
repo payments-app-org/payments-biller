@@ -7,9 +7,9 @@ import java.util.List;
 public record ProviderDetails(Provider provider, List<Field> fields, List<Nominal> nominals, GovDetails gov,
                               Transport transport, Game game, ForeignMobile foreignMobile, EMoney emoney,
                               Education education, Shop shop, Travel travel, Insurance insurance,
-                              Security security, Charity charity) {
+                              Security security, Charity charity, Utility utility, Internet internet, Misc misc) {
 
-    // stage: SEARCH — поле поиска счетов у поставщика («Найти»), PAY — поле оплаты.
+    // stage: SEARCH — поле поиска счетов у поставщика («Найти»), PAY — поле оплаты, BOTH — нужно в обоих режимах.
     // prefill: USER_FULL_NAME / USER_PHONE — подставить данные клиента.
     public record Field(String key, String label, String type, boolean required, String placeholder, String hint,
                         String info, String pattern, String dependsOn, String stage, String prefill, List<Option> options) {
@@ -34,6 +34,16 @@ public record ProviderDetails(Provider provider, List<Field> fields, List<Nomina
     }
 
     public record Charity(String inn, String cause) {
+    }
+
+    // directPay — у поставщика с поиском счетов можно и заплатить произвольную сумму («Найти / Оплатить»)
+    public record Utility(String kind, boolean directPay, String intro) {
+    }
+
+    public record Internet(String kind) {
+    }
+
+    public record Misc(String owner) {
     }
 
     public record Option(String value, String label, String countryCode) {

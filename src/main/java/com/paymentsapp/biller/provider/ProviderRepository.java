@@ -28,19 +28,31 @@ public class ProviderRepository {
     }
 
     // Поиск по всем поставщикам: по названию, заголовку формы и юрлицу. group — только одна группа.
-    public List<Provider> search(String query, String group) {
+    // region — только поставщики этого региона и федеральные (без привязки к региону).
+    public List<Provider> search(String query, String group, String region) {
         String q = query == null ? "" : query.trim();
         String g = group == null ? "" : group.trim();
+        String r = region == null ? "" : region.trim();
         return jdbc.sql(SELECT + """
                         and (:g = '' or p.group_code = :g)
+                        and (:r = '' or not exists (select 1 from provider_regions pr where pr.provider_id = p.id)
+                             or exists (select 1 from provider_regions pr where pr.provider_id = p.id and pr.region_code = :r))
                         and (:q = '' or p.name ilike '%' || :q || '%' or p.title ilike '%' || :q || '%'
                              or p.legal_name ilike '%' || :q || '%')
                         order by (p.name ilike :q || '%') desc,
                                  (select sort_order from provider_groups pg where pg.code = p.group_code), p.sort_order, p.name
                         limit 30
                         """)
-                .param("q", q).param("g", g)
+                .param("q", q).param("g", g).param("r", r)
                 .query(ProviderRepository::provider).list();
+    }
+
+    public List<Region> regions() {
+        return jdbc.sql("select * from regions order by sort_order")
+                .query((rs, n) -> new Region(rs.getString("code"), rs.getString("name"))).list();
+    }
+
+    public record Region(String code, String name) {
     }
 
     public Optional<Provider> byCode(String code) {
@@ -56,7 +68,10 @@ public class ProviderRepository {
                 one("travel_providers", p.id(), rs -> new ProviderDetails.Travel(rs.getString("kind"), rs.getString("registry_number"))),
                 one("insurance_providers", p.id(), rs -> new ProviderDetails.Insurance(rs.getString("kind"), rs.getString("license"))),
                 one("security_providers", p.id(), rs -> new ProviderDetails.Security(rs.getString("kind"), rs.getString("region"))),
-                one("charity_providers", p.id(), rs -> new ProviderDetails.Charity(rs.getString("inn"), rs.getString("cause")))));
+                one("charity_providers", p.id(), rs -> new ProviderDetails.Charity(rs.getString("inn"), rs.getString("cause"))),
+                one("utility_providers", p.id(), rs -> new ProviderDetails.Utility(rs.getString("kind"), rs.getBoolean("direct_pay"), rs.getString("intro"))),
+                one("internet_providers", p.id(), rs -> new ProviderDetails.Internet(rs.getString("kind"))),
+                one("misc_providers", p.id(), rs -> new ProviderDetails.Misc(rs.getString("owner")))));
     }
 
     public Optional<GovDetails> gov(int providerId) {

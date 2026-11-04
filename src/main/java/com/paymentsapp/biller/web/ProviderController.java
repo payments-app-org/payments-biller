@@ -24,8 +24,15 @@ public class ProviderController {
     }
 
     @GetMapping("/providers")
-    public List<Provider> search(@RequestParam(required = false) String q, @RequestParam(required = false) String group) {
-        return providers.search(q, group);
+    public List<Provider> search(@RequestParam(required = false) String q, @RequestParam(required = false) String group,
+                                 @RequestParam(required = false) String region) {
+        return providers.search(q, group, region);
+    }
+
+    // Регионы для фильтра «Регион: Москва и Московская область»
+    @GetMapping("/regions")
+    public List<ProviderRepository.Region> regions() {
+        return providers.regions();
     }
 
     @GetMapping("/providers/{code}")

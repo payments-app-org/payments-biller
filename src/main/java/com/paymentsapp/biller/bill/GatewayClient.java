@@ -37,8 +37,8 @@ public class GatewayClient {
     }
 
     // Счета у поставщика по данным плательщика (Образование Москвы: СНИЛС ребёнка, паспорт родителя…)
-    public java.util.List<ExternalInvoice> invoices(String providerCode, Map<String, String> fields) {
-        return rest.post().uri("/gateway/invoices").body(Map.of("providerCode", providerCode, "fields", fields))
+    public java.util.List<ExternalInvoice> invoices(String providerCode, String group, Map<String, String> fields) {
+        return rest.post().uri("/gateway/invoices").body(Map.of("providerCode", providerCode, "group", group, "fields", fields))
                 .retrieve().body(new org.springframework.core.ParameterizedTypeReference<java.util.List<ExternalInvoice>>() { });
     }
 

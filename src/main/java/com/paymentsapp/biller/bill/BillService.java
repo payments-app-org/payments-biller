@@ -115,8 +115,13 @@ public class BillService {
     // Если у поставщика есть поля поиска (stage = SEARCH), платим только найденный у него счёт — invoiceId.
     private BillCheck byFields(ProviderDetails d, Map<String, String> input, BigDecimal amount, UUID invoiceId) {
         Provider p = d.provider();
-        Validated v = validate(d, d.fields(), input);
         boolean lookup = d.fields().stream().anyMatch(f -> "SEARCH".equals(f.stage()));
+        // «Оплатить» без поиска счёта (ЖКХ Москвы): только поля оплаты и сумма в границах поставщика
+        boolean direct = lookup && invoiceId == null && d.utility() != null && d.utility().directPay();
+        if (direct) {
+            lookup = false;
+        }
+        Validated v = validate(d, direct ? d.fields().stream().filter(f -> !"SEARCH".equals(f.stage())).toList() : d.fields(), input);
         Nominal nominal = v.nominal();
 
         String billReference = null;
