@@ -6,7 +6,8 @@ import java.util.List;
 // Карточка поставщика: общие поля, поля формы и особенности его группы (заполнена только своя)
 public record ProviderDetails(Provider provider, List<Field> fields, List<Nominal> nominals, GovDetails gov,
                               Transport transport, Game game, ForeignMobile foreignMobile, EMoney emoney,
-                              Education education, Shop shop, Travel travel, Insurance insurance) {
+                              Education education, Shop shop, Travel travel, Insurance insurance,
+                              Security security, Charity charity) {
 
     // stage: SEARCH — поле поиска счетов у поставщика («Найти»), PAY — поле оплаты.
     // prefill: USER_FULL_NAME / USER_PHONE — подставить данные клиента.
@@ -27,6 +28,12 @@ public record ProviderDetails(Provider provider, List<Field> fields, List<Nomina
     }
 
     public record Insurance(String kind, String license) {
+    }
+
+    public record Security(String kind, String region) {
+    }
+
+    public record Charity(String inn, String cause) {
     }
 
     public record Option(String value, String label, String countryCode) {

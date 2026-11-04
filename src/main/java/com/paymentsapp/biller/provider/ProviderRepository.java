@@ -54,7 +54,9 @@ public class ProviderRepository {
                 one("education_providers", p.id(), rs -> new ProviderDetails.Education(rs.getString("kind"), rs.getBoolean("invoice_lookup"))),
                 one("shop_providers", p.id(), rs -> new ProviderDetails.Shop(rs.getString("sales_model"))),
                 one("travel_providers", p.id(), rs -> new ProviderDetails.Travel(rs.getString("kind"), rs.getString("registry_number"))),
-                one("insurance_providers", p.id(), rs -> new ProviderDetails.Insurance(rs.getString("kind"), rs.getString("license")))));
+                one("insurance_providers", p.id(), rs -> new ProviderDetails.Insurance(rs.getString("kind"), rs.getString("license"))),
+                one("security_providers", p.id(), rs -> new ProviderDetails.Security(rs.getString("kind"), rs.getString("region"))),
+                one("charity_providers", p.id(), rs -> new ProviderDetails.Charity(rs.getString("inn"), rs.getString("cause")))));
     }
 
     public Optional<GovDetails> gov(int providerId) {

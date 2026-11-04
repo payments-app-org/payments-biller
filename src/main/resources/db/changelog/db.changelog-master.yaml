@@ -17,3 +17,6 @@ databaseChangeLog:
   - include:
       file: changes/006-more-providers.sql
       relativeToChangelogFile: true
+  - include:
+      file: changes/007-security-donations.sql
+      relativeToChangelogFile: true
