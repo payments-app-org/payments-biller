@@ -16,8 +16,15 @@ public class ErrorHandler {
         return ProblemDetail.forStatusAndDetail(e.getStatusCode(), e.getReason());
     }
 
+    @ExceptionHandler(com.paymentsapp.biller.bill.BillException.class)
+    ProblemDetail bill(com.paymentsapp.biller.bill.BillException e) {
+        ProblemDetail problem = ProblemDetail.forStatusAndDetail(e.getStatus(), e.getMessage());
+        problem.setProperty("code", e.getCode().name());
+        return problem;
+    }
+
     @ExceptionHandler(RestClientException.class)
     ProblemDetail providerDown(RestClientException e) {
-        return ProblemDetail.forStatusAndDetail(HttpStatus.SERVICE_UNAVAILABLE, "ГИС ГМП не отвечает, попробуйте позже");
+        return ProblemDetail.forStatusAndDetail(HttpStatus.SERVICE_UNAVAILABLE, "Поставщик не отвечает, попробуйте позже");
     }
 }

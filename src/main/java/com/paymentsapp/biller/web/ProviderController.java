@@ -30,9 +30,8 @@ public class ProviderController {
 
     @GetMapping("/providers/{code}")
     public ProviderDetails provider(@PathVariable String code) {
-        Provider p = providers.byCode(code)
+        return providers.details(code)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Поставщик не найден"));
-        return new ProviderDetails(p, providers.gov(p.id()).orElse(null));
     }
 
     // +7 996 448-80-61 → Yota. Номер — 10 цифр после +7, мобильные коды начинаются на 9.

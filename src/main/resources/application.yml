@@ -25,3 +25,6 @@ spring:
 integrations:
   gis-gmp:
     url: ${GIS_GMP_URL:http://localhost:8088}
+  # Шлюзы поставщиков: связь, транспорт, игры
+  gateway:
+    url: ${GATEWAY_URL:http://localhost:8088}

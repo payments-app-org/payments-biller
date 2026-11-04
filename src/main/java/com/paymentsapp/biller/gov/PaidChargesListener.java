@@ -27,7 +27,7 @@ public class PaidChargesListener {
     @KafkaListener(topics = "payment.events")
     public void onPaymentEvent(String message) {
         JsonNode e = json.readTree(message);
-        if (!"PaymentSucceeded".equals(e.path("eventType").asString("")) || !"UIN_PAYMENT".equals(e.path("type").asString(""))) {
+        if (!"PaymentSucceeded".equals(e.path("eventType").asString("")) || !"BILL".equals(e.path("type").asString(""))) {
             return;
         }
         // billReference = «УИН/id начисления»
