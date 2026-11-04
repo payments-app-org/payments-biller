@@ -1,18 +1,22 @@
 package com.paymentsapp.biller.gov;
 
 import com.paymentsapp.biller.gov.GisGmpClient.ExternalCharge;
+import com.paymentsapp.biller.provider.GovDetails;
 import java.math.BigDecimal;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.time.LocalDate;
+import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
 import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
-// Начисления по УИН: спрашиваем ГИС ГМП и сохраняем у себя (повторный поиск обновит неоплаченные)
+// Начисления госуслуг: спрашиваем ГИС ГМП и сохраняем у себя (повторный поиск обновит неоплаченные)
 @Service
 public class GovChargeService {
 
@@ -24,11 +28,13 @@ public class GovChargeService {
         this.jdbc = jdbc;
     }
 
+    // ids — уже проверенные идентификаторы поиска (uin | sts, vu | inn | passport, inn)
     @Transactional
-    public List<GovCharge> find(String uin) {
-        int providerId = jdbc.sql("select id from providers where integration = 'GIS_GMP' and enabled")
-                .query(Integer.class).single();
-        for (ExternalCharge c : gisGmp.charges(uin)) {
+    public List<GovCharge> find(int providerId, GovDetails gov, Map<String, String> ids) {
+        Map<String, String> query = new LinkedHashMap<>(ids);
+        query.put("kind", gov.chargeKind());
+        List<String> found = new ArrayList<>();
+        for (ExternalCharge c : gisGmp.charges(query)) {
             jdbc.sql("""
                             insert into gov_charges (id, provider_id, external_id, uin, purpose, payee_name, payee_inn,
                                 payee_kpp, payee_account, payee_bik, kbk, oktmo, amount, discounted_amount, discount_until, issued_at)
@@ -46,9 +52,13 @@ public class GovChargeService {
                     .param("amount", c.amount()).param("discounted", c.discountedAmount())
                     .param("until", c.discountUntil()).param("issued", c.issuedAt())
                     .update();
+            found.add(c.externalId());
         }
-        return jdbc.sql("select * from gov_charges where uin = :uin and status = 'UNPAID' order by issued_at desc")
-                .param("uin", uin).query(GovChargeService::map).list();
+        if (found.isEmpty()) {
+            return List.of();
+        }
+        return jdbc.sql("select * from gov_charges where external_id in (:ids) and status = 'UNPAID' order by issued_at desc")
+                .param("ids", found).query(GovChargeService::map).list();
     }
 
     public Optional<GovCharge> get(UUID id) {
