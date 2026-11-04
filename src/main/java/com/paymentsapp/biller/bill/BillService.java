@@ -52,7 +52,7 @@ public class BillService {
             case "MOBILE" -> mobile(p, input);
             case "GOV" -> details.gov() != null && "FREE".equals(details.gov().lookup())
                     ? govFee(p, details.gov(), input)
-                    : govCharge(p, req, amount);
+                    : req.chargeId() != null ? govCharge(p, req, amount) : govDirect(p, details.gov(), input, amount);
             default -> byFields(details, input, amount, req.chargeId());
         };
     }
@@ -84,6 +84,39 @@ public class BillService {
                 c.payeeBik(), c.kbk(), c.oktmo());
         return new BillCheck(p.code(), p.groupCode(), c.payeeName(), c.purpose(),
                 List.of(new BillField("uin", "УИН", c.uin(), c.uin())), requisites, c.uin() + "/" + c.id(), null);
+    }
+
+    // Без начисления — сумма плательщика на реквизиты поставщика (шаблоны и автоплатежи: «налоги — 5000 ₽ каждый месяц»)
+    private BillCheck govDirect(Provider p, GovDetails gov, Map<String, String> input, BigDecimal amount) {
+        if (gov.payeeName() == null) {
+            throw new BillException(BILL_NOT_PAYABLE, "Оплата без начисления этому получателю недоступна");
+        }
+        if (amount.compareTo(BigDecimal.TEN) < 0) {
+            throw new BillException(INVALID_AMOUNT, "Минимальная сумма — 10 ₽");
+        }
+        Map<String, String> ids = com.paymentsapp.biller.gov.PayerIds.check(gov.lookup(), gov.uinPrefix(), input);
+        List<BillField> fields = new ArrayList<>();
+        ids.forEach((k, v) -> {
+            if (v != null) {
+                fields.add(new BillField(k, label(k), v, v));
+            }
+        });
+        String main = fields.isEmpty() ? null : fields.get(0).display();
+        Map<String, String> requisites = requisites(ids.getOrDefault("uin", ""), gov.payeeName(), gov.payeeInn(), gov.payeeKpp(),
+                gov.payeeAccount(), gov.payeeBik(), gov.kbk(), gov.oktmo());
+        return new BillCheck(p.code(), p.groupCode(), gov.payeeName(), gov.purpose() + (main != null ? " · " + main : ""),
+                fields, requisites, null, null);
+    }
+
+    private static String label(String key) {
+        return switch (key) {
+            case "uin" -> "УИН";
+            case "sts" -> "СТС";
+            case "vu" -> "Водительское удостоверение";
+            case "inn" -> "ИНН";
+            case "passport" -> "Паспорт";
+            default -> key;
+        };
     }
 
     // Госпошлина по квитанции (Росреестр): УИН и данные плательщика вводит пользователь, получатель — из gov_providers
@@ -118,13 +151,12 @@ public class BillService {
         boolean hasSearch = d.fields().stream().anyMatch(f -> "SEARCH".equals(f.stage()));
         // Счёт, найденный у поставщика (поиском на форме или по шаблону «Счета на оплату»): платим ровно его,
         // а из полей проверяем только те, по которым поставщик нашёл счёт
-        boolean lookup = invoiceId != null || hasSearch;
-        // «Оплатить» без поиска счёта (ЖКХ Москвы): только поля оплаты и сумма в границах поставщика
-        boolean direct = hasSearch && invoiceId == null && d.utility() != null && d.utility().directPay();
-        if (direct) {
-            lookup = false;
-        }
-        List<Field> checked = direct ? d.fields().stream().filter(f -> !"SEARCH".equals(f.stage())).toList()
+        boolean lookup = invoiceId != null;
+        // Без найденного счёта — оплата суммы плательщика. У ЖКХ Москвы («Оплатить») — только поля оплаты,
+        // у остальных поставщиков с поиском (ГИС ЖКХ, Образование Москвы; шаблоны и автоплатежи) — все поля.
+        boolean direct = hasSearch && invoiceId == null;
+        boolean payFieldsOnly = direct && d.utility() != null && d.utility().directPay();
+        List<Field> checked = payFieldsOnly ? d.fields().stream().filter(f -> !"SEARCH".equals(f.stage())).toList()
                 : invoiceId != null && !hasSearch ? d.fields().stream().filter(f -> !"PAY".equals(f.stage())).toList()
                 : d.fields();
         Validated v = validate(d, checked, input);
