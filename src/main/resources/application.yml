@@ -28,3 +28,10 @@ integrations:
   # Шлюзы поставщиков: связь, транспорт, игры
   gateway:
     url: ${GATEWAY_URL:http://localhost:8088}
+  # Процессинг: вечерние переводы фондам из копилки округлений и пожертвований
+  processing:
+    url: ${PROCESSING_URL:http://localhost:8085}
+
+charity:
+  # Когда переводить фондам накопленное за день (по Москве)
+  settle-cron: ${CHARITY_SETTLE_CRON:0 55 23 * * *}
