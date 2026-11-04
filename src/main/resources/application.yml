@@ -11,7 +11,17 @@ spring:
     # search_path соединения — своя схема (создаётся в infra/postgres/init.sql)
     hikari:
       schema: biller
+  kafka:
+    bootstrap-servers: ${KAFKA_BOOTSTRAP:localhost:29092}
+    consumer:
+      group-id: biller
+      auto-offset-reset: earliest
   liquibase:
     change-log: classpath:db/changelog/db.changelog-master.yaml
     default-schema: biller
     liquibase-schema: biller
+
+# Интеграции с поставщиками (пока — заглушки в сервисе providers)
+integrations:
+  gis-gmp:
+    url: ${GIS_GMP_URL:http://localhost:8088}
