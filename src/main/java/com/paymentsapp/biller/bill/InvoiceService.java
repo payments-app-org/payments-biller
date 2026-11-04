@@ -39,6 +39,12 @@ public class InvoiceService {
         }
         Map<String, String> values = new LinkedHashMap<>();
         bills.validate(d, searchFields, input == null ? Map.of() : input).fields().forEach(f -> values.put(f.key(), f.value()));
+        return fetch(d, values);
+    }
+
+    // Счета у поставщика по уже проверенным данным плательщика (поиск на форме или шаблон «Счета на оплату»)
+    @Transactional
+    public List<Invoice> fetch(ProviderDetails d, Map<String, String> values) {
         List<String> ids = new ArrayList<>();
         for (GatewayClient.ExternalInvoice e : gateway.invoices(d.provider().code(), d.provider().groupCode(), values)) {
             invoices.upsert(d.provider().id(), e);

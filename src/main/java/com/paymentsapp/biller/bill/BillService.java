@@ -115,13 +115,19 @@ public class BillService {
     // Если у поставщика есть поля поиска (stage = SEARCH), платим только найденный у него счёт — invoiceId.
     private BillCheck byFields(ProviderDetails d, Map<String, String> input, BigDecimal amount, UUID invoiceId) {
         Provider p = d.provider();
-        boolean lookup = d.fields().stream().anyMatch(f -> "SEARCH".equals(f.stage()));
+        boolean hasSearch = d.fields().stream().anyMatch(f -> "SEARCH".equals(f.stage()));
+        // Счёт, найденный у поставщика (поиском на форме или по шаблону «Счета на оплату»): платим ровно его,
+        // а из полей проверяем только те, по которым поставщик нашёл счёт
+        boolean lookup = invoiceId != null || hasSearch;
         // «Оплатить» без поиска счёта (ЖКХ Москвы): только поля оплаты и сумма в границах поставщика
-        boolean direct = lookup && invoiceId == null && d.utility() != null && d.utility().directPay();
+        boolean direct = hasSearch && invoiceId == null && d.utility() != null && d.utility().directPay();
         if (direct) {
             lookup = false;
         }
-        Validated v = validate(d, direct ? d.fields().stream().filter(f -> !"SEARCH".equals(f.stage())).toList() : d.fields(), input);
+        List<Field> checked = direct ? d.fields().stream().filter(f -> !"SEARCH".equals(f.stage())).toList()
+                : invoiceId != null && !hasSearch ? d.fields().stream().filter(f -> !"PAY".equals(f.stage())).toList()
+                : d.fields();
+        Validated v = validate(d, checked, input);
         Nominal nominal = v.nominal();
 
         String billReference = null;
