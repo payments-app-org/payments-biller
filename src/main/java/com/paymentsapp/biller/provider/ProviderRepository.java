@@ -49,7 +49,12 @@ public class ProviderRepository {
 
     public Optional<ProviderDetails> details(String code) {
         return byCode(code).map(p -> new ProviderDetails(p, fields(p.id()), nominals(p.id()), gov(p.id()).orElse(null),
-                transport(p.id()), game(p.id()), foreignMobile(p.id())));
+                transport(p.id()), game(p.id()), foreignMobile(p.id()),
+                one("emoney_providers", p.id(), rs -> new ProviderDetails.EMoney(rs.getBoolean("accepts_phone"), rs.getString("account_prefix"))),
+                one("education_providers", p.id(), rs -> new ProviderDetails.Education(rs.getString("kind"), rs.getBoolean("invoice_lookup"))),
+                one("shop_providers", p.id(), rs -> new ProviderDetails.Shop(rs.getString("sales_model"))),
+                one("travel_providers", p.id(), rs -> new ProviderDetails.Travel(rs.getString("kind"), rs.getString("registry_number"))),
+                one("insurance_providers", p.id(), rs -> new ProviderDetails.Insurance(rs.getString("kind"), rs.getString("license")))));
     }
 
     public Optional<GovDetails> gov(int providerId) {
@@ -74,7 +79,8 @@ public class ProviderRepository {
         return jdbc.sql("select * from provider_fields where provider_id = :id order by sort_order").param("id", providerId)
                 .query((rs, n) -> new Field(rs.getString("key"), rs.getString("label"), rs.getString("type"),
                         rs.getBoolean("required"), rs.getString("placeholder"), rs.getString("hint"), rs.getString("info"),
-                        rs.getString("pattern"), rs.getString("depends_on"), options.getOrDefault(rs.getInt("id"), List.of())))
+                        rs.getString("pattern"), rs.getString("depends_on"), rs.getString("stage"), rs.getString("prefill"),
+                        options.getOrDefault(rs.getInt("id"), List.of())))
                 .list();
     }
 
@@ -83,6 +89,16 @@ public class ProviderRepository {
                 .param("id", providerId)
                 .query((rs, n) -> new Nominal(rs.getInt("id"), rs.getString("region"), rs.getString("name"), rs.getBigDecimal("price")))
                 .list();
+    }
+
+    interface Row<T> {
+        T map(ResultSet rs) throws SQLException;
+    }
+
+    // Строка таблицы группы поставщика (имя таблицы — из кода, не из запроса)
+    private <T> T one(String table, int providerId, Row<T> row) {
+        return jdbc.sql("select * from " + table + " where provider_id = :id").param("id", providerId)
+                .query((rs, n) -> row.map(rs)).optional().orElse(null);
     }
 
     private Transport transport(int providerId) {

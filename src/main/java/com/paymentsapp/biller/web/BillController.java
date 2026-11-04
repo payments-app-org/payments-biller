@@ -24,10 +24,21 @@ public class BillController {
 
     private final BillService bills;
     private final BillPaymentService payments;
+    private final com.paymentsapp.biller.bill.InvoiceService invoices;
 
-    public BillController(BillService bills, BillPaymentService payments) {
+    public BillController(BillService bills, BillPaymentService payments, com.paymentsapp.biller.bill.InvoiceService invoices) {
         this.bills = bills;
         this.payments = payments;
+        this.invoices = invoices;
+    }
+
+    // «Найти»: счета у поставщика по полям поиска (stage = SEARCH)
+    @PostMapping("/invoices/search")
+    public java.util.List<com.paymentsapp.biller.bill.InvoiceRepository.Invoice> searchInvoices(@RequestBody SearchRequest req) {
+        return invoices.search(req.providerCode(), req.fields());
+    }
+
+    public record SearchRequest(String providerCode, Map<String, String> fields) {
     }
 
     @PostMapping("/bills/check")

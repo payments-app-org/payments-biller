@@ -3,6 +3,7 @@ package com.paymentsapp.biller.bill;
 import static com.paymentsapp.biller.bill.BillException.Code.*;
 
 import com.paymentsapp.biller.bill.BillCheck.BillField;
+import com.paymentsapp.biller.bill.InvoiceRepository.Invoice;
 import com.paymentsapp.biller.gov.GovCharge;
 import com.paymentsapp.biller.gov.GovChargeService;
 import com.paymentsapp.biller.provider.GovDetails;
@@ -19,6 +20,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.UUID;
 import java.util.regex.Pattern;
 import org.springframework.stereotype.Service;
 
@@ -32,10 +34,12 @@ public class BillService {
 
     private final ProviderRepository providers;
     private final GovChargeService charges;
+    private final InvoiceRepository invoices;
 
-    public BillService(ProviderRepository providers, GovChargeService charges) {
+    public BillService(ProviderRepository providers, GovChargeService charges, InvoiceRepository invoices) {
         this.providers = providers;
         this.charges = charges;
+        this.invoices = invoices;
     }
 
     public BillCheck check(BillCheckRequest req) {
@@ -49,7 +53,7 @@ public class BillService {
             case "GOV" -> details.gov() != null && "FREE".equals(details.gov().lookup())
                     ? govFee(p, details.gov(), input)
                     : govCharge(p, req, amount);
-            default -> byFields(details, input, amount);
+            default -> byFields(details, input, amount, req.chargeId());
         };
     }
 
@@ -103,14 +107,58 @@ public class BillService {
         return new BillCheck(p.code(), p.groupCode(), gov.payeeName(), gov.purpose(), fields, requisites, uin, null);
     }
 
-    // Транспорт, игры, зарубежная связь: поля по шаблону поставщика
-    private BillCheck byFields(ProviderDetails d, Map<String, String> input, BigDecimal amount) {
+    // Проверенные поля: что отдать поставщику и показать людям, выбранный номинал, главное значение для назначения
+    public record Validated(List<BillField> fields, Nominal nominal, String main) {
+    }
+
+    // Транспорт, игры, зарубежная связь, образование, магазины, путешествия, страхование: поля по шаблону поставщика.
+    // Если у поставщика есть поля поиска (stage = SEARCH), платим только найденный у него счёт — invoiceId.
+    private BillCheck byFields(ProviderDetails d, Map<String, String> input, BigDecimal amount, UUID invoiceId) {
         Provider p = d.provider();
+        Validated v = validate(d, d.fields(), input);
+        boolean lookup = d.fields().stream().anyMatch(f -> "SEARCH".equals(f.stage()));
+        Nominal nominal = v.nominal();
+
+        String billReference = null;
+        String purpose;
+        if (lookup) {
+            require(invoiceId != null, "Не выбран счёт");
+            Invoice inv = invoices.get(invoiceId).filter(i -> i.providerId() == p.id())
+                    .orElseThrow(() -> new BillException(BILL_NOT_PAYABLE, "Счёт не найден"));
+            if (!"UNPAID".equals(inv.status())) {
+                throw new BillException(BILL_NOT_PAYABLE, "Счёт уже оплачен");
+            }
+            if (inv.amount().compareTo(amount) != 0) {
+                throw new BillException(BILL_NOT_PAYABLE, "Сумма не совпадает со счётом: " + rub(inv.amount()) + " ₽");
+            }
+            billReference = "inv/" + inv.id();
+            purpose = p.name() + " — " + inv.title();
+        } else if (nominal != null) {
+            if (nominal.price().compareTo(amount) != 0) {
+                throw new BillException(INVALID_AMOUNT, "Цена номинала — " + rub(nominal.price()) + " ₽");
+            }
+            // «Genshin Impact — 300 + 30 кристаллов»
+            purpose = p.name() + " — " + nominal.name();
+        } else {
+            boolean tooLow = p.minAmount() != null && amount.compareTo(p.minAmount()) < 0;
+            boolean tooHigh = p.maxAmount() != null && amount.compareTo(p.maxAmount()) > 0;
+            if (tooLow || tooHigh) {
+                throw new BillException(INVALID_AMOUNT, "Сумма у этого поставщика — от " + rub(p.minAmount()) + " до " + rub(p.maxAmount()) + " ₽");
+            }
+            // «Карта Тройка · 1234567890»
+            purpose = v.main() != null ? p.name() + " · " + v.main() : p.name();
+        }
+        String phone = v.fields().stream().filter(x -> x.key().equals("phone")).map(BillField::display).findFirst().orElse(null);
+        return new BillCheck(p.code(), p.groupCode(), p.name(), purpose, v.fields(), null, billReference,
+                phone != null && phone.length() <= 20 ? phone.replace(" ", "").replace("-", "") : null);
+    }
+
+    public Validated validate(ProviderDetails d, List<Field> fields, Map<String, String> input) {
         List<BillField> out = new ArrayList<>();
         Nominal nominal = null;
         // Главное поле для назначения платежа: номер карты, счёта, телефона, логин — не почта и не выбор из списка
         String main = null;
-        for (Field f : d.fields()) {
+        for (Field f : fields) {
             String raw = input.getOrDefault(f.key(), "").trim();
             if (raw.isEmpty()) {
                 require(!f.required(), "Заполните поле «" + f.label() + "»");
@@ -120,7 +168,7 @@ public class BillService {
             String display = raw;
             switch (f.type()) {
                 case "DIGITS" -> {
-                    value = raw.replaceAll("\\s", "");
+                    value = raw.replaceAll("[\\s-]", "");
                     require(value.matches("\\d+") && (f.pattern() == null || value.matches(f.pattern())),
                             "Проверьте поле «" + f.label() + "»" + (f.hint() != null && f.hint().length() < 40 ? ": " + f.hint() : ""));
                     display = value;
@@ -135,6 +183,7 @@ public class BillService {
                     value = localPhone(d.foreignMobile(), raw);
                     display = "+" + d.foreignMobile().dialCode() + " " + value;
                 }
+                case "MONTH" -> display = month(raw, f.label());
                 case "CHOICE" -> {
                     String v = raw;
                     Option o = f.options().stream().filter(x -> x.value().equals(v)).findFirst()
@@ -153,28 +202,27 @@ public class BillService {
                 default -> throw new IllegalStateException("Неизвестный тип поля " + f.type());
             }
             out.add(new BillField(f.key(), f.label(), value, display));
-            if (main == null && !Set.of("EMAIL", "CHOICE", "NOMINAL").contains(f.type())) {
+            if (main == null && !Set.of("EMAIL", "CHOICE", "NOMINAL", "MONTH").contains(f.type())) {
                 main = display;
             }
         }
+        return new Validated(out, nominal, main);
+    }
 
-        if (nominal != null) {
-            if (nominal.price().compareTo(amount) != 0) {
-                throw new BillException(INVALID_AMOUNT, "Цена номинала — " + nominal.price().stripTrailingZeros().toPlainString() + " ₽");
-            }
-        } else {
-            boolean tooLow = p.minAmount() != null && amount.compareTo(p.minAmount()) < 0;
-            boolean tooHigh = p.maxAmount() != null && amount.compareTo(p.maxAmount()) > 0;
-            if (tooLow || tooHigh) {
-                throw new BillException(INVALID_AMOUNT, "Сумма у этого поставщика — от " + rub(p.minAmount()) + " до " + rub(p.maxAmount()) + " ₽");
-            }
+    private static final String[] MONTHS = {"январь", "февраль", "март", "апрель", "май", "июнь", "июль", "август",
+            "сентябрь", "октябрь", "ноябрь", "декабрь"};
+
+    // 2026-11 → «ноябрь 2026»; оплатить можно за год назад и на год вперёд
+    private static String month(String raw, String label) {
+        java.time.YearMonth ym;
+        try {
+            ym = java.time.YearMonth.parse(raw);
+        } catch (java.time.format.DateTimeParseException e) {
+            throw new BillException(INVALID_REQUISITES, "Выберите месяц в поле «" + label + "»");
         }
-
-        // Назначение: «Genshin Impact — 300 + 30 кристаллов», «Карта Тройка · 1234567890»
-        String purpose = nominal != null ? p.name() + " — " + nominal.name() : main != null ? p.name() + " · " + main : p.name();
-        String phone = out.stream().filter(x -> x.key().equals("phone")).map(BillField::display).findFirst().orElse(null);
-        return new BillCheck(p.code(), p.groupCode(), p.name(), purpose, out, null, null,
-                phone != null && phone.length() <= 20 ? phone.replace(" ", "").replace("-", "") : null);
+        java.time.YearMonth now = java.time.YearMonth.now();
+        require(!ym.isBefore(now.minusMonths(12)) && !ym.isAfter(now.plusMonths(12)), "Период оплаты — не дальше года от текущего месяца");
+        return MONTHS[ym.getMonthValue() - 1] + " " + ym.getYear();
     }
 
     // Номер без кода страны: длина и начало — по формату страны

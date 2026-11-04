@@ -36,6 +36,16 @@ public class GatewayClient {
         }
     }
 
+    // Счета у поставщика по данным плательщика (Образование Москвы: СНИЛС ребёнка, паспорт родителя…)
+    public java.util.List<ExternalInvoice> invoices(String providerCode, Map<String, String> fields) {
+        return rest.post().uri("/gateway/invoices").body(Map.of("providerCode", providerCode, "fields", fields))
+                .retrieve().body(new org.springframework.core.ParameterizedTypeReference<java.util.List<ExternalInvoice>>() { });
+    }
+
+    public record ExternalInvoice(String externalId, String title, String description, BigDecimal amount,
+                                  java.time.LocalDate dueDate) {
+    }
+
     // status: ACCEPTED — поставщик зачислил, REJECTED — отказал (message — почему)
     public record GatewayResult(UUID paymentId, String status, String externalId, String voucherCode, String message) {
     }

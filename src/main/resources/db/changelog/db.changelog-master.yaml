@@ -14,3 +14,6 @@ databaseChangeLog:
   - include:
       file: changes/005-bill-providers.sql
       relativeToChangelogFile: true
+  - include:
+      file: changes/006-more-providers.sql
+      relativeToChangelogFile: true

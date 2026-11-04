@@ -18,10 +18,12 @@ public class PaidChargesListener {
 
     private final JdbcClient jdbc;
     private final JsonMapper json;
+    private final com.paymentsapp.biller.bill.InvoiceRepository invoices;
 
-    public PaidChargesListener(JdbcClient jdbc, JsonMapper json) {
+    public PaidChargesListener(JdbcClient jdbc, JsonMapper json, com.paymentsapp.biller.bill.InvoiceRepository invoices) {
         this.jdbc = jdbc;
         this.json = json;
+        this.invoices = invoices;
     }
 
     @KafkaListener(topics = "payment.events")
@@ -30,8 +32,14 @@ public class PaidChargesListener {
         if (!"PaymentSucceeded".equals(e.path("eventType").asString("")) || !"BILL".equals(e.path("type").asString(""))) {
             return;
         }
-        // billReference = «УИН/id начисления»
+        // billReference = «УИН/id начисления» (госуслуги) или «inv/id счёта» (счёт, найденный у поставщика)
         String ref = e.path("billReference").asString("");
+        if (ref.startsWith("inv/")) {
+            if (invoices.markPaid(UUID.fromString(ref.substring(4))) == 1) {
+                log.info("Счёт {} оплачен (платёж {})", ref, e.path("paymentId").asString());
+            }
+            return;
+        }
         int slash = ref.lastIndexOf('/');
         if (slash < 0) {
             return;
