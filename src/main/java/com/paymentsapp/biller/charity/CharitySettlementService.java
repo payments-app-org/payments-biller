@@ -1,8 +1,9 @@
 package com.paymentsapp.biller.charity;
 
+import net.javacrumbs.shedlock.spring.annotation.SchedulerLock;
 import java.math.BigDecimal;
 import java.time.LocalDate;
-import java.time.ZoneId;
+import java.time.Clock;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
@@ -22,22 +23,25 @@ import org.springframework.web.client.RestClientException;
 public class CharitySettlementService {
 
     private static final Logger log = LoggerFactory.getLogger(CharitySettlementService.class);
-    private static final ZoneId MOSCOW = ZoneId.of("Europe/Moscow");
 
     private final JdbcClient jdbc;
     private final TransactionTemplate tx;
     private final RestClient processing;
+    private final Clock clock;
 
     public CharitySettlementService(JdbcClient jdbc, TransactionTemplate tx, RestClient.Builder builder,
-                                    @Value("${integrations.processing.url}") String processingUrl) {
+                                    @Value("${integrations.processing.url}") String processingUrl, Clock clock) {
+        this.clock = clock;
         this.jdbc = jdbc;
         this.tx = tx;
         this.processing = builder.baseUrl(processingUrl).build();
     }
 
-    @Scheduled(cron = "${charity.settle-cron}", zone = "Europe/Moscow")
+    // При нескольких подах расчёт выполняет только один (ShedLock)
+    @Scheduled(cron = "${charity.settle-cron}", zone = "${platform.time.zone}")
+    @SchedulerLock(name = "charity-settlement")
     public void endOfDay() {
-        settle(LocalDate.now(MOSCOW));
+        settle(LocalDate.now(clock));
     }
 
     // Всё накопленное по день включительно: по одному переводу на фонд. Возвращает созданные и повторённые переводы.

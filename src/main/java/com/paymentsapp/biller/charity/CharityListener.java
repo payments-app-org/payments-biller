@@ -3,7 +3,7 @@ package com.paymentsapp.biller.charity;
 import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.time.OffsetDateTime;
-import java.time.ZoneId;
+import java.time.Clock;
 import java.util.UUID;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -19,17 +19,18 @@ import tools.jackson.databind.json.JsonMapper;
 public class CharityListener {
 
     private static final Logger log = LoggerFactory.getLogger(CharityListener.class);
-    private static final ZoneId MOSCOW = ZoneId.of("Europe/Moscow");
 
     private final JdbcClient jdbc;
     private final JsonMapper json;
+    private final Clock clock;
 
-    public CharityListener(JdbcClient jdbc, JsonMapper json) {
+    public CharityListener(JdbcClient jdbc, JsonMapper json, Clock clock) {
         this.jdbc = jdbc;
         this.json = json;
+        this.clock = clock;
     }
 
-    @KafkaListener(topics = "payment.events", groupId = "biller-charity")
+    @KafkaListener(topics = "${messaging.payment-events.topic}", groupId = "${messaging.payment-events.charity-group}")
     public void onPaymentEvent(String message) {
         JsonNode e = json.readTree(message);
         if (!"PaymentSucceeded".equals(e.path("eventType").asString(""))) {
@@ -37,8 +38,8 @@ public class CharityListener {
         }
         UUID paymentId = UUID.fromString(e.path("paymentId").asString());
         LocalDate day = e.hasNonNull("createdAt")
-                ? OffsetDateTime.parse(e.path("createdAt").asString()).atZoneSameInstant(MOSCOW).toLocalDate()
-                : LocalDate.now(MOSCOW);
+                ? OffsetDateTime.parse(e.path("createdAt").asString()).atZoneSameInstant(clock.getZone()).toLocalDate()
+                : LocalDate.now(clock);
         BigDecimal roundUp = e.hasNonNull("roundUpAmount") ? e.path("roundUpAmount").decimalValue() : BigDecimal.ZERO;
         if (roundUp.signum() > 0) {
             accrue(e.path("roundUpFundCode").asString(""), "ROUNDUP", paymentId, roundUp, day);

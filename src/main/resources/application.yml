@@ -4,6 +4,11 @@ server:
 spring:
   application:
     name: biller
+  # Тайм-ауты всех HTTP-клиентов по умолчанию: зависший сосед не держит поток бесконечно
+  http:
+    clients:
+      connect-timeout: ${HTTP_CONNECT_TIMEOUT:1s}
+      read-timeout: ${HTTP_READ_TIMEOUT:5s}
   datasource:
     url: ${DB_URL:jdbc:postgresql://localhost:5432/payments}
     username: ${DB_USER:payments}
@@ -16,6 +21,17 @@ spring:
     consumer:
       group-id: biller
       auto-offset-reset: earliest
+    listener:
+      # По потоку на партицию топика
+      concurrency: ${KAFKA_LISTENER_CONCURRENCY:3}
+  # Redis: блокировки планировщиков (ShedLock), кэш
+  data:
+    redis:
+      host: ${REDIS_HOST:localhost}
+      port: ${REDIS_PORT:6379}
+      # Redis — только для кэша и блокировок, репозитории Spring Data на нём не нужны
+      repositories:
+        enabled: false
   liquibase:
     change-log: classpath:db/changelog/db.changelog-master.yaml
     default-schema: biller
@@ -35,3 +51,14 @@ integrations:
 charity:
   # Когда переводить фондам накопленное за день (по Москве)
   settle-cron: ${CHARITY_SETTLE_CRON:0 55 23 * * *}
+
+# Общая библиотека libs/platform
+platform:
+  time:
+    zone: Europe/Moscow
+
+messaging:
+  payment-events:
+    topic: payment.events
+    # Своя группа: благотворительность читает те же события независимо от остального biller
+    charity-group: biller-charity

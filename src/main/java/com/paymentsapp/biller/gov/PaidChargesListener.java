@@ -26,7 +26,7 @@ public class PaidChargesListener {
         this.invoices = invoices;
     }
 
-    @KafkaListener(topics = "payment.events")
+    @KafkaListener(topics = "${messaging.payment-events.topic}")
     public void onPaymentEvent(String message) {
         JsonNode e = json.readTree(message);
         if (!"PaymentSucceeded".equals(e.path("eventType").asString("")) || !"BILL".equals(e.path("type").asString(""))) {

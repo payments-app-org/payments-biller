@@ -2,7 +2,7 @@ package com.paymentsapp.biller.web;
 
 import com.paymentsapp.biller.charity.CharitySettlementService;
 import java.time.LocalDate;
-import java.time.ZoneId;
+import java.time.Clock;
 import java.util.List;
 import java.util.Map;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -17,9 +17,11 @@ import org.springframework.web.bind.annotation.RestController;
 public class CharityController {
 
     private final CharitySettlementService settlements;
+    private final Clock clock;
 
-    public CharityController(CharitySettlementService settlements) {
+    public CharityController(CharitySettlementService settlements, Clock clock) {
         this.settlements = settlements;
+        this.clock = clock;
     }
 
     @GetMapping
@@ -29,6 +31,6 @@ public class CharityController {
 
     @PostMapping("/settle")
     public List<CharitySettlementService.Settlement> settle(@RequestParam(required = false) LocalDate upTo) {
-        return settlements.settle(upTo == null ? LocalDate.now(ZoneId.of("Europe/Moscow")) : upTo);
+        return settlements.settle(upTo == null ? LocalDate.now(clock) : upTo);
     }
 }
