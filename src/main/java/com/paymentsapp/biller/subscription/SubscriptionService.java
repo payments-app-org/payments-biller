@@ -1,17 +1,20 @@
 package com.paymentsapp.biller.subscription;
 
-import static com.paymentsapp.biller.bill.BillException.Code.INVALID_REQUISITES;
+import static com.paymentsapp.biller.error.BillerError.*;
 
-import com.paymentsapp.biller.bill.BillException;
-import com.paymentsapp.biller.bill.BillService;
+import com.paymentsapp.biller.bill.BillerProperties;
+import com.paymentsapp.biller.bill.FieldValidator;
 import com.paymentsapp.biller.bill.InvoiceService;
 import com.paymentsapp.biller.gov.GovChargeService;
 import com.paymentsapp.biller.gov.PayerIds;
 import com.paymentsapp.biller.provider.Provider;
 import com.paymentsapp.biller.provider.ProviderDetails;
 import com.paymentsapp.biller.provider.ProviderDetails.Field;
+import com.paymentsapp.biller.provider.ProviderGroup;
 import com.paymentsapp.biller.provider.ProviderRepository;
 import com.paymentsapp.biller.subscription.Subscription.Bill;
+import com.paymentsapp.biller.subscription.Subscription.BillKind;
+import com.paymentsapp.platform.error.DomainException;
 import java.math.BigDecimal;
 import java.sql.ResultSet;
 import java.sql.SQLException;
@@ -21,10 +24,8 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
-import org.springframework.http.HttpStatus;
 import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.stereotype.Service;
-import org.springframework.web.server.ResponseStatusException;
 import tools.jackson.core.type.TypeReference;
 import tools.jackson.databind.json.JsonMapper;
 
@@ -33,19 +34,23 @@ import tools.jackson.databind.json.JsonMapper;
 @Service
 public class SubscriptionService {
 
+    private static final String CHARGE_DESCRIPTION = "%s · УИН %s";
+
     private final JdbcClient jdbc;
     private final JsonMapper json;
     private final ProviderRepository providers;
-    private final BillService bills;
+    private final FieldValidator fields;
     private final InvoiceService invoices;
     private final GovChargeService charges;
+    private final BillerProperties properties;
 
-    public SubscriptionService(JdbcClient jdbc, JsonMapper json, ProviderRepository providers, BillService bills,
-                               InvoiceService invoices, GovChargeService charges) {
+    public SubscriptionService(JdbcClient jdbc, JsonMapper json, ProviderRepository providers, FieldValidator fields,
+                               InvoiceService invoices, GovChargeService charges, BillerProperties properties) {
         this.jdbc = jdbc;
         this.json = json;
         this.providers = providers;
-        this.bills = bills;
+        this.fields = fields;
+        this.properties = properties;
         this.invoices = invoices;
         this.charges = charges;
     }
@@ -101,13 +106,13 @@ public class SubscriptionService {
     public Subscription.WithBills withBills(UUID userId, UUID id) {
         Subscription s = get(userId, id);
         ProviderDetails d = providers.details(s.provider().code())
-                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Поставщик не найден"));
-        List<Bill> found = "GOV".equals(d.provider().groupCode())
+                .orElseThrow(() -> new DomainException(PROVIDER_NOT_FOUND));
+        List<Bill> found = d.provider().groupCode() == ProviderGroup.GOV
                 ? charges.find(d.provider().id(), d.gov(), PayerIds.check(d.gov().lookup(), d.gov().uinPrefix(), s.fields()))
-                        .stream().map(c -> new Bill(c.id(), "CHARGE", c.purpose(), c.payeeName() + " · УИН " + c.uin(),
+                        .stream().map(c -> new Bill(c.id(), BillKind.CHARGE, c.purpose(), CHARGE_DESCRIPTION.formatted(c.payeeName(), c.uin()),
                                 c.payableAmount(), c.amount(), c.discountUntil() == null ? null : c.discountUntil().toString(),
                                 null)).toList()
-                : invoices.fetch(d, s.fields()).stream().map(i -> new Bill(i.id(), "INVOICE", i.title(), i.description(),
+                : invoices.fetch(d, s.fields()).stream().map(i -> new Bill(i.id(), BillKind.INVOICE, i.title(), i.description(),
                         i.amount(), i.amount(), null, i.dueDate() == null ? null : i.dueDate().toString())).toList();
         BigDecimal total = found.stream().map(Bill::amount).reduce(BigDecimal.ZERO, BigDecimal::add);
         jdbc.sql("update bill_subscriptions set checked_at = now(), unpaid_count = :count, unpaid_total = :total where id = :id")
@@ -118,7 +123,7 @@ public class SubscriptionService {
     public Subscription get(UUID userId, UUID id) {
         return jdbc.sql("select * from bill_subscriptions where id = :id and user_id = :user")
                 .param("id", id).param("user", userId).query(this::map).optional()
-                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Шаблон не найден"));
+                .orElseThrow(() -> new DomainException(SUBSCRIPTION_NOT_FOUND));
     }
 
     private List<UUID> ids(UUID userId) {
@@ -129,7 +134,7 @@ public class SubscriptionService {
     private ProviderDetails eligibleDetails(String code) {
         Optional<Provider> p = eligible("").stream().filter(x -> x.code().equals(code)).findFirst();
         if (p.isEmpty()) {
-            throw new BillException(INVALID_REQUISITES, "У этого поставщика нет счетов на оплату");
+            throw new DomainException(NO_BILLS);
         }
         return providers.details(code).orElseThrow();
     }
@@ -137,24 +142,24 @@ public class SubscriptionService {
     // Поля, по которым поставщик находит счета: у госуслуг — правила поиска начислений, у остальных — шаблон поставщика
     private Map<String, String> checkFields(ProviderDetails d, Map<String, String> input) {
         Map<String, String> raw = input == null ? Map.of() : input;
-        List<Field> ident = d.fields().stream().filter(f -> !"PAY".equals(f.stage())).toList();
+        List<Field> ident = d.fields().stream().filter(Field::searchable).toList();
         Map<String, String> values = new LinkedHashMap<>();
-        if ("GOV".equals(d.provider().groupCode())) {
+        if (d.provider().groupCode() == ProviderGroup.GOV) {
             PayerIds.check(d.gov().lookup(), d.gov().uinPrefix(), raw).forEach((k, v) -> {
                 if (v != null) {
                     values.put(k, v);
                 }
             });
         } else {
-            bills.validate(d, ident, raw).fields().forEach(f -> values.put(f.key(), f.value()));
+            fields.validate(d, ident, raw).fields().forEach(f -> values.put(f.key(), f.value()));
         }
         return values;
     }
 
-    private static String checkName(String name) {
+    private String checkName(String name) {
         String n = name == null ? "" : name.trim();
-        if (n.isEmpty() || n.length() > 50) {
-            throw new BillException(INVALID_REQUISITES, "Название шаблона — от 1 до 50 символов");
+        if (n.isEmpty() || n.length() > properties.templateNameMax()) {
+            throw new DomainException(TEMPLATE_NAME, properties.templateNameMax());
         }
         return n;
     }

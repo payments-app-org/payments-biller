@@ -1,21 +1,21 @@
 package com.paymentsapp.biller.web;
 
+import com.paymentsapp.biller.error.BillerError;
 import com.paymentsapp.biller.gov.GovCharge;
 import com.paymentsapp.biller.gov.GovChargeService;
 import com.paymentsapp.biller.gov.PayerIds;
 import com.paymentsapp.biller.provider.GovDetails;
 import com.paymentsapp.biller.provider.Provider;
 import com.paymentsapp.biller.provider.ProviderRepository;
+import com.paymentsapp.platform.error.DomainException;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
-import org.springframework.http.HttpStatus;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
-import org.springframework.web.server.ResponseStatusException;
 
 // Госуслуги: поиск начислений у поставщика и карточка начисления (её проверяет payment перед оплатой).
 // provider=gibdd&sts=…&vu=… · provider=fns-uin&uin=… · provider=fns-inn&inn=… · provider=fssp&passport=…&inn=…
@@ -35,14 +35,14 @@ public class GovController {
     @GetMapping("/charges")
     public List<GovCharge> find(@RequestParam(defaultValue = "uin") String provider, @RequestParam Map<String, String> params) {
         Provider p = providers.byCode(provider)
-                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Поставщик не найден"));
+                .orElseThrow(() -> new DomainException(BillerError.PROVIDER_NOT_FOUND));
         GovDetails gov = providers.gov(p.id())
-                .orElseThrow(() -> new ResponseStatusException(HttpStatus.BAD_REQUEST, "Это не госуслуга"));
+                .orElseThrow(() -> new DomainException(BillerError.NOT_GOV));
         return charges.find(p.id(), gov, PayerIds.check(gov.lookup(), gov.uinPrefix(), params));
     }
 
     @GetMapping("/charges/{id}")
     public GovCharge get(@PathVariable UUID id) {
-        return charges.get(id).orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Начисление не найдено"));
+        return charges.get(id).orElseThrow(() -> new DomainException(BillerError.CHARGE_UNKNOWN));
     }
 }

@@ -26,8 +26,9 @@ public class InvoiceRepository {
                         values (:id, :provider, :ext, :title, :description, :amount, :due)
                         on conflict (external_id) do update set title = excluded.title, description = excluded.description,
                             amount = excluded.amount, due_date = excluded.due_date, fetched_at = now()
-                        where provider_invoices.status = 'UNPAID'
+                        where provider_invoices.status = :unpaid
                         """)
+                .param("unpaid", BillStatus.UNPAID.name())
                 .param("id", UUID.randomUUID()).param("provider", providerId).param("ext", e.externalId())
                 .param("title", e.title()).param("description", e.description()).param("amount", e.amount())
                 .param("due", e.dueDate())
@@ -38,8 +39,8 @@ public class InvoiceRepository {
         if (externalIds.isEmpty()) {
             return List.of();
         }
-        return jdbc.sql("select * from provider_invoices where external_id in (:ids) and status = 'UNPAID' order by due_date nulls last, title")
-                .param("ids", externalIds).query(InvoiceRepository::map).list();
+        return jdbc.sql("select * from provider_invoices where external_id in (:ids) and status = :unpaid order by due_date nulls last, title")
+                .param("ids", externalIds).param("unpaid", BillStatus.UNPAID.name()).query(InvoiceRepository::map).list();
     }
 
     public Optional<Invoice> get(UUID id) {
@@ -47,16 +48,17 @@ public class InvoiceRepository {
     }
 
     public int markPaid(UUID id) {
-        return jdbc.sql("update provider_invoices set status = 'PAID' where id = :id and status = 'UNPAID'").param("id", id).update();
+        return jdbc.sql("update provider_invoices set status = :paid where id = :id and status = :unpaid").param("id", id)
+                .param("paid", BillStatus.PAID.name()).param("unpaid", BillStatus.UNPAID.name()).update();
     }
 
     private static Invoice map(ResultSet rs, int n) throws SQLException {
         return new Invoice(rs.getObject("id", UUID.class), rs.getInt("provider_id"), rs.getString("title"),
                 rs.getString("description"), rs.getBigDecimal("amount"), rs.getObject("due_date", LocalDate.class),
-                rs.getString("status"));
+                BillStatus.valueOf(rs.getString("status")));
     }
 
     public record Invoice(UUID id, int providerId, String title, String description, BigDecimal amount, LocalDate dueDate,
-                          String status) {
+                          BillStatus status) {
     }
 }

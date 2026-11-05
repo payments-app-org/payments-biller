@@ -1,16 +1,17 @@
 package com.paymentsapp.biller.gov;
 
-import java.util.UUID;
+import com.paymentsapp.biller.bill.BillReference;
+import com.paymentsapp.biller.bill.BillStatus;
+import com.paymentsapp.biller.bill.InvoiceRepository;
+import com.paymentsapp.biller.messaging.PaymentEvent;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.kafka.annotation.KafkaListener;
 import org.springframework.stereotype.Component;
-import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.json.JsonMapper;
 
-// Успешная оплата госуслуги → начисление помечаем оплаченным: в поиске по УИН его больше нет.
-// Дальше здесь же будет квитирование в ГИС ГМП (сообщить поставщику об оплате).
+// Успешная оплата начисления или счёта у поставщика — помечаем его оплаченным: второй раз не заплатят
 @Component
 public class PaidChargesListener {
 
@@ -18,9 +19,9 @@ public class PaidChargesListener {
 
     private final JdbcClient jdbc;
     private final JsonMapper json;
-    private final com.paymentsapp.biller.bill.InvoiceRepository invoices;
+    private final InvoiceRepository invoices;
 
-    public PaidChargesListener(JdbcClient jdbc, JsonMapper json, com.paymentsapp.biller.bill.InvoiceRepository invoices) {
+    public PaidChargesListener(JdbcClient jdbc, JsonMapper json, InvoiceRepository invoices) {
         this.jdbc = jdbc;
         this.json = json;
         this.invoices = invoices;
@@ -28,27 +29,20 @@ public class PaidChargesListener {
 
     @KafkaListener(topics = "${messaging.payment-events.topic}")
     public void onPaymentEvent(String message) {
-        JsonNode e = json.readTree(message);
-        if (!"PaymentSucceeded".equals(e.path("eventType").asString("")) || !"BILL".equals(e.path("type").asString(""))) {
+        PaymentEvent e = json.readValue(message, PaymentEvent.class);
+        if (!e.succeeded() || !e.isBill()) {
             return;
         }
-        // billReference = «УИН/id начисления» (госуслуги) или «inv/id счёта» (счёт, найденный у поставщика)
-        String ref = e.path("billReference").asString("");
-        if (ref.startsWith("inv/")) {
-            if (invoices.markPaid(UUID.fromString(ref.substring(4))) == 1) {
-                log.info("Счёт {} оплачен (платёж {})", ref, e.path("paymentId").asString());
+        BillReference.parse(e.billReference()).ifPresent(ref -> {
+            boolean marked = switch (ref) {
+                case BillReference.Invoice invoice -> invoices.markPaid(invoice.id()) == 1;
+                case BillReference.Charge charge -> jdbc.sql("update gov_charges set status = :paid where id = :id and status = :unpaid")
+                        .param("id", charge.id()).param("paid", BillStatus.PAID.name()).param("unpaid", BillStatus.UNPAID.name())
+                        .update() == 1;
+            };
+            if (marked) {
+                log.info("{} оплачен (платёж {})", e.billReference(), e.paymentId());
             }
-            return;
-        }
-        int slash = ref.lastIndexOf('/');
-        if (slash < 0) {
-            return;
-        }
-        UUID chargeId = UUID.fromString(ref.substring(slash + 1));
-        int updated = jdbc.sql("update gov_charges set status = 'PAID' where id = :id and status = 'UNPAID'")
-                .param("id", chargeId).update();
-        if (updated == 1) {
-            log.info("Начисление {} оплачено (платёж {})", chargeId, e.path("paymentId").asString());
-        }
+        });
     }
 }

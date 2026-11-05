@@ -1,9 +1,12 @@
 package com.paymentsapp.biller.gov;
 
+import static com.paymentsapp.biller.error.BillerError.*;
+
+import com.paymentsapp.biller.error.BillerError;
+import com.paymentsapp.biller.provider.LookupMethod;
+import com.paymentsapp.platform.error.DomainException;
 import java.util.LinkedHashMap;
 import java.util.Map;
-import org.springframework.http.HttpStatus;
-import org.springframework.web.server.ResponseStatusException;
 
 // Проверка того, по чему ищем начисления: УИН, СТС, ВУ, ИНН физлица, паспорт
 public final class PayerIds {
@@ -11,42 +14,44 @@ public final class PayerIds {
     // СТС и ВУ: серия из 4 символов (цифры или буквы) и номер из 6 цифр
     private static final String DOC = "\\d{2}[0-9А-ЯЁA-Z]{2}\\d{6}";
 
+    private static final int PASSPORT_DIGITS = 10;
+
     private PayerIds() {
     }
 
-    public static Map<String, String> check(String lookup, String uinPrefix, Map<String, String> raw) {
+    public static Map<String, String> check(LookupMethod lookup, String uinPrefix, Map<String, String> raw) {
         Map<String, String> ids = new LinkedHashMap<>();
         switch (lookup) {
-            case "UIN" -> {
+            case UIN -> {
                 String uin = digits(raw.get("uin"));
-                require(uin != null && uin.matches("\\d{20}|\\d{25}"), "УИН — 20 или 25 цифр");
-                require(uinPrefix == null || uin.startsWith(uinPrefix), "УИН этого получателя начинается с " + uinPrefix);
+                require(uin != null && uin.matches("\\d{20}|\\d{25}"), UIN_FORMAT);
+                require(uinPrefix == null || uin.startsWith(uinPrefix), UIN_PREFIX, uinPrefix);
                 ids.put("uin", uin);
             }
-            case "STS_VU" -> {
+            case STS_VU -> {
                 String sts = doc(raw.get("sts"));
                 String vu = doc(raw.get("vu"));
-                require(sts != null || vu != null, "Укажите свидетельство о регистрации ТС или водительское удостоверение");
-                require(sts == null || sts.matches(DOC), "Номер СТС — 10 символов: XX XX XXXXXX");
-                require(vu == null || vu.matches(DOC), "Номер водительского удостоверения — 10 символов: XX XX XXXXXX");
+                require(sts != null || vu != null, STS_OR_VU_REQUIRED);
+                require(sts == null || sts.matches(DOC), STS_FORMAT);
+                require(vu == null || vu.matches(DOC), VU_FORMAT);
                 ids.put("sts", sts);
                 ids.put("vu", vu);
             }
-            case "INN" -> {
+            case INN -> {
                 String inn = digits(raw.get("inn"));
-                require(inn != null && personInn(inn), "Некорректный ИНН физического лица");
+                require(inn != null && personInn(inn), PERSON_INN);
                 ids.put("inn", inn);
             }
-            case "PASSPORT_INN" -> {
+            case PASSPORT_INN -> {
                 String passport = digits(raw.get("passport"));
                 String inn = digits(raw.get("inn"));
-                require(passport != null || inn != null, "Укажите паспорт или ИНН");
-                require(passport == null || passport.length() == 10, "Серия и номер паспорта — 10 цифр");
-                require(inn == null || personInn(inn), "Некорректный ИНН физического лица");
+                require(passport != null || inn != null, PASSPORT_OR_INN_REQUIRED);
+                require(passport == null || passport.length() == PASSPORT_DIGITS, PASSPORT_FORMAT);
+                require(inn == null || personInn(inn), PERSON_INN);
                 ids.put("passport", passport);
                 ids.put("inn", inn);
             }
-            default -> throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "У этого получателя начисления не ищутся");
+            case FREE -> throw new DomainException(NO_CHARGE_LOOKUP);
         }
         return ids;
     }
@@ -79,9 +84,9 @@ public final class PayerIds {
         return d.isEmpty() ? null : d;
     }
 
-    private static void require(boolean condition, String message) {
+    private static void require(boolean condition, BillerError error, Object... args) {
         if (!condition) {
-            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, message);
+            throw new DomainException(error, args);
         }
     }
 }

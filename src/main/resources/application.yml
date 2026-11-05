@@ -9,6 +9,20 @@ spring:
     clients:
       connect-timeout: ${HTTP_CONNECT_TIMEOUT:1s}
       read-timeout: ${HTTP_READ_TIMEOUT:5s}
+    # Интеграции: ГИС ГМП, шлюзы поставщиков, процессинг (вечерние переводы фондам)
+    serviceclient:
+      gis-gmp:
+        base-url: ${GIS_GMP_URL:http://localhost:8088}
+        connect-timeout: 1s
+        read-timeout: 5s
+      gateway:
+        base-url: ${GATEWAY_URL:http://localhost:8088}
+        connect-timeout: 1s
+        read-timeout: 5s
+      processing:
+        base-url: ${PROCESSING_URL:http://localhost:8085}
+        connect-timeout: 1s
+        read-timeout: 5s
   datasource:
     url: ${DB_URL:jdbc:postgresql://localhost:5432/payments}
     username: ${DB_USER:payments}
@@ -38,16 +52,6 @@ spring:
     liquibase-schema: biller
 
 # Интеграции с поставщиками (пока — заглушки в сервисе providers)
-integrations:
-  gis-gmp:
-    url: ${GIS_GMP_URL:http://localhost:8088}
-  # Шлюзы поставщиков: связь, транспорт, игры
-  gateway:
-    url: ${GATEWAY_URL:http://localhost:8088}
-  # Процессинг: вечерние переводы фондам из копилки округлений и пожертвований
-  processing:
-    url: ${PROCESSING_URL:http://localhost:8085}
-
 charity:
   # Когда переводить фондам накопленное за день (по Москве)
   settle-cron: ${CHARITY_SETTLE_CRON:0 55 23 * * *}
@@ -56,6 +60,68 @@ charity:
 platform:
   time:
     zone: Europe/Moscow
+  # Справочники поставщиков и переводов за рубеж — в Redis, общий кэш для всех подов
+  cache:
+    enabled: true
+    default-ttl: 1h
+    version: v1
+    ttl:
+      provider-search: 10m
+
+# Отказоустойчивость интеграций (libs/platform ResilientCalls); 4xx — ответ поставщика, не сбой
+resilience4j:
+  circuitbreaker:
+    configs:
+      default:
+        sliding-window-type: COUNT_BASED
+        sliding-window-size: 20
+        minimum-number-of-calls: 10
+        failure-rate-threshold: 50
+        wait-duration-in-open-state: 10s
+        permitted-number-of-calls-in-half-open-state: 3
+        record-exceptions:
+          - org.springframework.web.client.ResourceAccessException
+          - org.springframework.web.client.HttpServerErrorException
+    instances:
+      gateway: { base-config: default }
+      gis-gmp: { base-config: default }
+      processing: { base-config: default }
+  retry:
+    configs:
+      default:
+        max-attempts: 3
+        wait-duration: 200ms
+        enable-exponential-backoff: true
+        exponential-backoff-multiplier: 2
+        retry-exceptions:
+          - org.springframework.web.client.ResourceAccessException
+          - org.springframework.web.client.HttpServerErrorException
+      connect-only:
+        max-attempts: 2
+        wait-duration: 200ms
+        retry-exception-predicate: com.paymentsapp.platform.resilience.ConnectFailure
+    instances:
+      gateway: { base-config: default }
+      gis-gmp: { base-config: default }
+      processing: { base-config: default }
+      gateway-connect-only: { base-config: connect-only }
+  bulkhead:
+    configs:
+      default:
+        max-concurrent-calls: 50
+        max-wait-duration: 100ms
+    instances:
+      gateway: { base-config: default }
+      gis-gmp: { base-config: default }
+      processing: { base-config: default }
+
+biller:
+  # Минимум оплаты госуслуги без начисления, ₽
+  gov-min-amount: 10
+  # Период оплаты (МШП) — не дальше стольких месяцев от текущего
+  month-range: 12
+  # Длина названия шаблона «Счета на оплату»
+  template-name-max: 50
 
 messaging:
   payment-events:

@@ -13,8 +13,13 @@ public record Subscription(UUID id, String name, Provider provider, Map<String, 
 
     // Неоплаченный счёт у поставщика: начисление ГИС ГМП (CHARGE) или счёт поставщика (INVOICE).
     // id — его передаём в payment как chargeId.
-    public record Bill(UUID id, String kind, String title, String description, BigDecimal amount, BigDecimal fullAmount,
+    public record Bill(UUID id, BillKind kind, String title, String description, BigDecimal amount, BigDecimal fullAmount,
                        String discountUntil, String dueDate) {
+    }
+
+    public enum BillKind {
+        CHARGE,
+        INVOICE
     }
 
     public record WithBills(Subscription subscription, List<Bill> bills) {

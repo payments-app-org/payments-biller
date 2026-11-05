@@ -1,11 +1,13 @@
 package com.paymentsapp.biller.provider;
 
+import com.paymentsapp.biller.cache.CacheNames;
 import com.paymentsapp.biller.provider.ProviderDetails.Field;
 import com.paymentsapp.biller.provider.ProviderDetails.ForeignMobile;
 import com.paymentsapp.biller.provider.ProviderDetails.Game;
 import com.paymentsapp.biller.provider.ProviderDetails.Nominal;
 import com.paymentsapp.biller.provider.ProviderDetails.Option;
 import com.paymentsapp.biller.provider.ProviderDetails.Transport;
+import java.io.Serializable;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.util.Arrays;
@@ -13,6 +15,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.stream.Collectors;
+import org.springframework.cache.annotation.Cacheable;
 import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.stereotype.Repository;
 
@@ -29,6 +32,7 @@ public class ProviderRepository {
 
     // Поиск по всем поставщикам: по названию, заголовку формы и юрлицу. group — только одна группа.
     // region — только поставщики этого региона и федеральные (без привязки к региону).
+    @Cacheable(CacheNames.PROVIDER_SEARCH)
     public List<Provider> search(String query, String group, String region) {
         String q = query == null ? "" : query.trim();
         String g = group == null ? "" : group.trim();
@@ -47,18 +51,22 @@ public class ProviderRepository {
                 .query(ProviderRepository::provider).list();
     }
 
+    @Cacheable(CacheNames.REGIONS)
     public List<Region> regions() {
         return jdbc.sql("select * from regions order by sort_order")
                 .query((rs, n) -> new Region(rs.getString("code"), rs.getString("name"))).list();
     }
 
-    public record Region(String code, String name) {
+    public record Region(String code, String name) implements Serializable {
     }
 
+    @Cacheable(value = CacheNames.PROVIDER, unless = "#result == null")
     public Optional<Provider> byCode(String code) {
         return jdbc.sql(SELECT + "and p.code = :code").param("code", code).query(ProviderRepository::provider).optional();
     }
 
+    // Карточка — полтора десятка запросов к таблицам групп: на горячем пути (проверка каждого платежа) — из кэша
+    @Cacheable(value = CacheNames.PROVIDER_DETAILS, unless = "#result == null")
     public Optional<ProviderDetails> details(String code) {
         return byCode(code).map(p -> new ProviderDetails(p, fields(p.id()), nominals(p.id()), gov(p.id()).orElse(null),
                 transport(p.id()), game(p.id()), foreignMobile(p.id()),
@@ -76,7 +84,7 @@ public class ProviderRepository {
 
     public Optional<GovDetails> gov(int providerId) {
         return jdbc.sql("select * from gov_providers where provider_id = :id").param("id", providerId)
-                .query((rs, n) -> new GovDetails(rs.getString("lookup"), rs.getString("charge_kind"),
+                .query((rs, n) -> new GovDetails(LookupMethod.valueOf(rs.getString("lookup")), rs.getString("charge_kind"),
                         rs.getString("uin_prefix"), rs.getString("description"), rs.getString("payee_name"),
                         rs.getString("payee_inn"), rs.getString("payee_kpp"), rs.getString("payee_account"),
                         rs.getString("payee_bik"), rs.getString("kbk"), rs.getString("oktmo"), rs.getString("purpose")))
@@ -94,9 +102,10 @@ public class ProviderRepository {
                 .list().stream()
                 .collect(Collectors.groupingBy(Map.Entry::getKey, Collectors.mapping(Map.Entry::getValue, Collectors.toList())));
         return jdbc.sql("select * from provider_fields where provider_id = :id order by sort_order").param("id", providerId)
-                .query((rs, n) -> new Field(rs.getString("key"), rs.getString("label"), rs.getString("type"),
+                .query((rs, n) -> new Field(rs.getString("key"), rs.getString("label"), FieldType.valueOf(rs.getString("type")),
                         rs.getBoolean("required"), rs.getString("placeholder"), rs.getString("hint"), rs.getString("info"),
-                        rs.getString("pattern"), rs.getString("depends_on"), rs.getString("stage"), rs.getString("prefill"),
+                        rs.getString("pattern"), rs.getString("depends_on"), FieldStage.valueOf(rs.getString("stage")),
+                        rs.getString("prefill") == null ? null : Prefill.valueOf(rs.getString("prefill")),
                         options.getOrDefault(rs.getInt("id"), List.of())))
                 .list();
     }
@@ -125,7 +134,7 @@ public class ProviderRepository {
 
     private Game game(int providerId) {
         return jdbc.sql("select * from game_providers where provider_id = :id").param("id", providerId)
-                .query((rs, n) -> new Game(rs.getString("kind"), rs.getString("platform"), rs.getString("delivery_note")))
+                .query((rs, n) -> new Game(GameKind.valueOf(rs.getString("kind")), rs.getString("platform"), rs.getString("delivery_note")))
                 .optional().orElse(null);
     }
 
@@ -148,7 +157,7 @@ public class ProviderRepository {
     }
 
     private static Provider provider(ResultSet rs, int n) throws SQLException {
-        return new Provider(rs.getInt("id"), rs.getString("code"), rs.getString("group_code"), rs.getString("name"),
+        return new Provider(rs.getInt("id"), rs.getString("code"), ProviderGroup.valueOf(rs.getString("group_code")), rs.getString("name"),
                 rs.getString("title"), rs.getString("legal_name"), rs.getString("domain"), rs.getString("color"),
                 rs.getString("country_code"), rs.getBigDecimal("min_amount"), rs.getBigDecimal("max_amount"));
     }

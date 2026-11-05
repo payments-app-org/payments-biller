@@ -1,37 +1,38 @@
 package com.paymentsapp.biller.gov;
 
+import com.paymentsapp.biller.client.Backends;
+import com.paymentsapp.biller.client.GisGmpApi;
+import com.paymentsapp.platform.resilience.ResilientCalls;
 import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.util.List;
 import java.util.Map;
-import org.springframework.beans.factory.annotation.Value;
-import org.springframework.core.ParameterizedTypeReference;
 import org.springframework.stereotype.Component;
-import org.springframework.web.client.RestClient;
+import org.springframework.util.LinkedMultiValueMap;
+import org.springframework.util.MultiValueMap;
 
-// Адаптер интеграции GIS_GMP: запрос начислений по УИН или по идентификаторам плательщика (СТС, ВУ, ИНН, паспорт)
+// Адаптер интеграции GIS_GMP: начисления по УИН или по идентификаторам плательщика (СТС, ВУ, ИНН, паспорт).
+// Запрос только читает — повторять безопасно.
 @Component
 public class GisGmpClient {
 
-    private final RestClient rest;
+    private final GisGmpApi api;
+    private final ResilientCalls calls;
 
-    public GisGmpClient(RestClient.Builder builder, @Value("${integrations.gis-gmp.url}") String url) {
-        this.rest = builder.baseUrl(url).build();
+    public GisGmpClient(GisGmpApi api, ResilientCalls calls) {
+        this.api = api;
+        this.calls = calls;
     }
 
     // query: uin | sts, vu | inn | passport, inn; kind — вид начислений (GIBDD, TAX, FSSP), если важен
     public List<ExternalCharge> charges(Map<String, String> query) {
-        return rest.get().uri(b -> {
-                    b.path("/gis-gmp/charges");
-                    query.forEach((k, v) -> {
-                        if (v != null && !v.isBlank()) {
-                            b.queryParam(k, "{" + k + "}");
-                        }
-                    });
-                    return b.build(query);
-                })
-                .retrieve()
-                .body(new ParameterizedTypeReference<List<ExternalCharge>>() { });
+        MultiValueMap<String, String> params = new LinkedMultiValueMap<>();
+        query.forEach((key, value) -> {
+            if (value != null && !value.isBlank()) {
+                params.add(key, value);
+            }
+        });
+        return calls.call(Backends.GIS_GMP, () -> api.charges(params));
     }
 
     public record ExternalCharge(String externalId, String uin, String purpose, String payeeName, String payeeInn,

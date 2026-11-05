@@ -1,52 +1,60 @@
 package com.paymentsapp.biller.bill;
 
+import com.paymentsapp.biller.client.Backends;
+import com.paymentsapp.biller.client.GatewayApi;
+import com.paymentsapp.biller.provider.ProviderGroup;
+import com.paymentsapp.platform.resilience.ResilientCalls;
 import java.math.BigDecimal;
+import java.time.LocalDate;
+import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 import org.springframework.web.client.HttpClientErrorException;
-import org.springframework.web.client.RestClient;
 
-// Шлюзы поставщиков (заглушка в providers): операторы связи, транспорт, игры, ГИС ГМП (квитирование).
-// Вызов идемпотентен по paymentId: повтор вернёт тот же ответ.
+// Шлюзы поставщиков. Вызов оплаты идемпотентен по paymentId: повтор вернёт тот же ответ.
 @Component
 public class GatewayClient {
 
-    private final RestClient rest;
+    private final GatewayApi api;
+    private final ResilientCalls calls;
 
-    public GatewayClient(RestClient.Builder builder, @Value("${integrations.gateway.url}") String url) {
-        this.rest = builder.baseUrl(url).build();
+    public GatewayClient(GatewayApi api, ResilientCalls calls) {
+        this.api = api;
+        this.calls = calls;
     }
 
     public GatewayResult pay(UUID paymentId, String integration, String providerCode, BigDecimal amount,
                              Map<String, String> fields, boolean issueVoucher) {
-        return rest.post().uri("/gateway/payments")
-                .body(Map.of("paymentId", paymentId, "integration", integration, "providerCode", providerCode,
-                        "amount", amount, "fields", fields, "issueVoucher", issueVoucher))
-                .retrieve().body(GatewayResult.class);
+        GatewayApi.PayRequest request = new GatewayApi.PayRequest(paymentId, integration, providerCode, amount, fields, issueVoucher);
+        return calls.call(Backends.GATEWAY, Backends.GATEWAY_CONNECT_ONLY, () -> api.pay(request));
     }
 
     public Optional<GatewayResult> find(UUID paymentId) {
-        try {
-            return Optional.ofNullable(rest.get().uri("/gateway/payments/{id}", paymentId).retrieve().body(GatewayResult.class));
-        } catch (HttpClientErrorException.NotFound e) {
-            return Optional.empty();
-        }
+        return calls.call(Backends.GATEWAY, () -> {
+            try {
+                return Optional.ofNullable(api.payment(paymentId));
+            } catch (HttpClientErrorException.NotFound e) {
+                return Optional.empty();
+            }
+        });
     }
 
     // Счета у поставщика по данным плательщика (Образование Москвы: СНИЛС ребёнка, паспорт родителя…)
-    public java.util.List<ExternalInvoice> invoices(String providerCode, String group, Map<String, String> fields) {
-        return rest.post().uri("/gateway/invoices").body(Map.of("providerCode", providerCode, "group", group, "fields", fields))
-                .retrieve().body(new org.springframework.core.ParameterizedTypeReference<java.util.List<ExternalInvoice>>() { });
+    public List<ExternalInvoice> invoices(String providerCode, ProviderGroup group, Map<String, String> fields) {
+        return calls.call(Backends.GATEWAY, () -> api.invoices(new GatewayApi.InvoicesRequest(providerCode, group, fields)));
     }
 
-    public record ExternalInvoice(String externalId, String title, String description, BigDecimal amount,
-                                  java.time.LocalDate dueDate) {
+    public record ExternalInvoice(String externalId, String title, String description, BigDecimal amount, LocalDate dueDate) {
     }
 
-    // status: ACCEPTED — поставщик зачислил, REJECTED — отказал (message — почему)
-    public record GatewayResult(UUID paymentId, String status, String externalId, String voucherCode, String message) {
+    // ACCEPTED — поставщик зачислил, REJECTED — отказал (message — почему)
+    public enum GatewayStatus {
+        ACCEPTED,
+        REJECTED
+    }
+
+    public record GatewayResult(UUID paymentId, GatewayStatus status, String externalId, String voucherCode, String message) {
     }
 }
