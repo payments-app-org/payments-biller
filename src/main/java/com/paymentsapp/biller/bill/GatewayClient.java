@@ -49,10 +49,11 @@ public class GatewayClient {
     public record ExternalInvoice(String externalId, String title, String description, BigDecimal amount, LocalDate dueDate) {
     }
 
-    // ACCEPTED — поставщик зачислил, REJECTED — отказал (message — почему)
+    // ACCEPTED — поставщик зачислил, REJECTED — отказал (message — почему), PENDING — принял, проведёт позже
     public enum GatewayStatus {
         ACCEPTED,
-        REJECTED
+        REJECTED,
+        PENDING
     }
 
     public record GatewayResult(UUID paymentId, GatewayStatus status, String externalId, String voucherCode, String message) {

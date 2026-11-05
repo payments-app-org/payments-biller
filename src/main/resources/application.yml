@@ -38,15 +38,15 @@ spring:
     listener:
       # По потоку на партицию топика
       concurrency: ${KAFKA_LISTENER_CONCURRENCY:3}
-  # Redis: блокировки планировщиков (ShedLock), кэш
+  # Redis: блокировки планировщиков (ShedLock) — расчёт с фондами в 23:55 выполняет один под
   data:
     redis:
       host: ${REDIS_HOST:localhost}
       port: ${REDIS_PORT:6379}
-      # Redis недоступен — отказ за секунды (кэш идёт мимо, readiness — DOWN), а не ожидание по минуте
+      # Redis недоступен — отказ за секунды (readiness — DOWN), а не ожидание по минуте
       connect-timeout: 1s
       timeout: 2s
-      # Redis — только для кэша и блокировок, репозитории Spring Data на нём не нужны
+      # Redis — только для блокировок, репозитории Spring Data на нём не нужны
       repositories:
         enabled: false
   liquibase:
@@ -61,19 +61,18 @@ charity:
 
 # Общая библиотека libs/platform
 platform:
+  # Сообщения, не обработанные после повторов, — в DLT своей группы (payment.events.<группа>-dlt); разбор:
+  # GET /api/internal/dlt/payment.events (сколько ждёт), POST /api/internal/dlt/payment.events/replay (отправить снова)
+  kafka:
+    dead-letter:
+      topics: [payment.events]
+      groups: [biller, biller-charity]
   # Swagger: описание API и коды ошибок в схеме Problem
   openapi:
     description: "Поставщики услуг: каталог, проверка и оплата, госуслуги, пожертвования"
     error-codes: com.paymentsapp.biller.error.BillerError
   time:
     zone: Europe/Moscow
-  # Справочники поставщиков и переводов за рубеж — в Redis, общий кэш для всех подов
-  cache:
-    enabled: true
-    default-ttl: 1h
-    version: v1
-    ttl:
-      provider-search: 10m
 
 # Отказоустойчивость интеграций (libs/platform ResilientCalls); 4xx — ответ поставщика, не сбой
 resilience4j:

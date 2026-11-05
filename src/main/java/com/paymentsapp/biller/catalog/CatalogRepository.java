@@ -1,6 +1,5 @@
 package com.paymentsapp.biller.catalog;
 
-import com.paymentsapp.biller.cache.CacheNames;
 import com.paymentsapp.biller.catalog.Catalog.Country;
 import com.paymentsapp.biller.catalog.Catalog.Field;
 import com.paymentsapp.biller.catalog.Catalog.Method;
@@ -9,7 +8,6 @@ import java.sql.SQLException;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Optional;
-import org.springframework.cache.annotation.Cacheable;
 import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.stereotype.Repository;
 
@@ -29,7 +27,6 @@ public class CatalogRepository {
     }
 
     // Популярные сверху, дальше по алфавиту; поиск по русскому и местному названию и по коду
-    @Cacheable(CacheNames.COUNTRIES)
     public List<Country> countries(String query) {
         String q = query == null ? "" : query.trim();
         return jdbc.sql(COUNTRY_SELECT + """
@@ -41,13 +38,11 @@ public class CatalogRepository {
                 .list();
     }
 
-    @Cacheable(value = CacheNames.COUNTRY, unless = "#result == null")
     public Optional<Country> country(String code) {
         return jdbc.sql(COUNTRY_SELECT + " and c.code = :code").param("code", code.toUpperCase())
                 .query(CatalogRepository::country).optional();
     }
 
-    @Cacheable(CacheNames.METHODS)
     public List<Method> methods(String countryCode) {
         return jdbc.sql("select * from transfer_methods where country_code = :code and enabled order by sort_order")
                 .param("code", countryCode.toUpperCase())
@@ -55,13 +50,11 @@ public class CatalogRepository {
                 .list();
     }
 
-    @Cacheable(value = CacheNames.METHOD, unless = "#result == null")
     public Optional<Method> method(int id) {
         return jdbc.sql("select * from transfer_methods where id = :id and enabled").param("id", id)
                 .query(CatalogRepository::method).optional();
     }
 
-    @Cacheable(CacheNames.METHOD_FIELDS)
     public List<Field> fields(String templateCode) {
         return jdbc.sql("select * from template_fields where template_code = :t order by sort_order")
                 .param("t", templateCode)
@@ -80,6 +73,7 @@ public class CatalogRepository {
     private static Method method(ResultSet rs, int n) throws SQLException {
         Catalog.MethodKind kind = Catalog.MethodKind.valueOf(rs.getString("kind"));
         return new Method(rs.getInt("id"), rs.getString("country_code"), rs.getString("name"), kind,
-                kind.label(), rs.getString("color"), rs.getString("template_code"));
+                kind.label(), rs.getString("color"), rs.getString("template_code"), rs.getBigDecimal("min_amount"),
+                rs.getBigDecimal("max_amount"));
     }
 }

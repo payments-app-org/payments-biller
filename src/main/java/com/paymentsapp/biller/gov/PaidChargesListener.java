@@ -41,7 +41,7 @@ public class PaidChargesListener {
                         .update() == 1;
             };
             if (marked) {
-                log.info("{} оплачен (платёж {})", e.billReference(), e.paymentId());
+                log.info("начисление оплачено (платёж {})", e.paymentId());
             }
         });
     }

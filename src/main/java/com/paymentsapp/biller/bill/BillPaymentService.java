@@ -48,9 +48,26 @@ public class BillPaymentService {
         return stored(paymentId).orElse(r);
     }
 
-    // Чем закончилась оплата: у себя, а если ответ шлюза до нас не дошёл — спрашиваем шлюз
+    // Чем закончилась оплата: у себя, а если ответ шлюза до нас не дошёл или оплата долгая (PENDING) — спрашиваем шлюз.
+    // Окончательный итог запоминаем.
     public Optional<GatewayResult> find(UUID paymentId) {
-        return stored(paymentId).or(() -> gateway.find(paymentId));
+        Optional<GatewayResult> known = stored(paymentId);
+        if (known.isPresent() && known.get().status() != GatewayStatus.PENDING) {
+            return known;
+        }
+        Optional<GatewayResult> fresh = gateway.find(paymentId);
+        fresh.filter(r -> r.status() != GatewayStatus.PENDING).filter(r -> known.isPresent()).ifPresent(this::complete);
+        return fresh.or(() -> known);
+    }
+
+    private void complete(GatewayResult r) {
+        jdbc.sql("""
+                        update biller_payments set status = :status, external_id = :ext, voucher_code = :voucher, message = :message
+                        where payment_id = :id and status = 'PENDING'
+                        """)
+                .param("id", r.paymentId()).param("status", r.status().name()).param("ext", r.externalId())
+                .param("voucher", r.voucherCode()).param("message", r.message())
+                .update();
     }
 
     private void save(UUID paymentId, int providerId, BigDecimal amount, Map<String, String> fields, GatewayResult r) {

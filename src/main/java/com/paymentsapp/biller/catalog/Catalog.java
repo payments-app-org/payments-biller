@@ -1,31 +1,41 @@
 package com.paymentsapp.biller.catalog;
 
-import java.io.Serializable;
+import java.math.BigDecimal;
 import java.util.List;
 
-// Модель справочника переводов за рубеж. Serializable — справочник лежит в кэше Redis.
+// Модель справочника переводов за рубеж
 public final class Catalog {
 
     private Catalog() {
     }
 
     public record Country(String code, String nameRu, String nameNative, String dialCode, boolean popular,
-                          List<String> currencies) implements Serializable {
+                          List<String> currencies) {
     }
 
     // kindLabel — подпись для интерфейса: «Пополнение карты», «По номеру телефона»…
+    // minAmount / maxAmount — сколько ₽ можно отправить одним переводом этим способом
     public record Method(int id, String countryCode, String name, MethodKind kind, String kindLabel, String color,
-                         String templateCode) implements Serializable {
+                         String templateCode, BigDecimal minAmount, BigDecimal maxAmount) {
     }
 
-    public record CountryDetails(Country country, List<Method> methods) implements Serializable {
+    // Страна со способами и полями каждого способа: форма строится одним запросом, без второго за полями
+    public record CountryDetails(Country country, List<CountryMethod> methods) {
+    }
+
+    public record CountryMethod(int id, String name, MethodKind kind, String kindLabel, String color, BigDecimal minAmount,
+                                BigDecimal maxAmount, List<Field> fields) {
+
+        public static CountryMethod of(Method m, List<Field> fields) {
+            return new CountryMethod(m.id(), m.name(), m.kind(), m.kindLabel(), m.color(), m.minAmount(), m.maxAmount(), fields);
+        }
     }
 
     // Поле данных получателя: что спросить и как проверить
-    public record Field(String key, String label, String type, String pattern, String placeholder) implements Serializable {
+    public record Field(String key, String label, String type, String pattern, String placeholder) {
     }
 
-    public record MethodDetails(Method method, List<String> currencies, List<Field> fields) implements Serializable {
+    public record MethodDetails(Method method, List<String> currencies, List<Field> fields) {
     }
 
     // Вид способа перевода (transfer_methods.kind) и подпись для интерфейса

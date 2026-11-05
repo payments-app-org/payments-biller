@@ -1,13 +1,11 @@
 package com.paymentsapp.biller.provider;
 
-import com.paymentsapp.biller.cache.CacheNames;
 import com.paymentsapp.biller.provider.ProviderDetails.Field;
 import com.paymentsapp.biller.provider.ProviderDetails.ForeignMobile;
 import com.paymentsapp.biller.provider.ProviderDetails.Game;
 import com.paymentsapp.biller.provider.ProviderDetails.Nominal;
 import com.paymentsapp.biller.provider.ProviderDetails.Option;
 import com.paymentsapp.biller.provider.ProviderDetails.Transport;
-import java.io.Serializable;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.util.Arrays;
@@ -15,7 +13,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.stream.Collectors;
-import org.springframework.cache.annotation.Cacheable;
 import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.stereotype.Repository;
 
@@ -32,7 +29,6 @@ public class ProviderRepository {
 
     // Поиск по всем поставщикам: по названию, заголовку формы и юрлицу. group — только одна группа.
     // region — только поставщики этого региона и федеральные (без привязки к региону).
-    @Cacheable(CacheNames.PROVIDER_SEARCH)
     public List<Provider> search(String query, String group, String region) {
         String q = query == null ? "" : query.trim();
         String g = group == null ? "" : group.trim();
@@ -51,22 +47,19 @@ public class ProviderRepository {
                 .query(ProviderRepository::provider).list();
     }
 
-    @Cacheable(CacheNames.REGIONS)
     public List<Region> regions() {
         return jdbc.sql("select * from regions order by sort_order")
                 .query((rs, n) -> new Region(rs.getString("code"), rs.getString("name"))).list();
     }
 
-    public record Region(String code, String name) implements Serializable {
+    public record Region(String code, String name) {
     }
 
-    @Cacheable(value = CacheNames.PROVIDER, unless = "#result == null")
     public Optional<Provider> byCode(String code) {
         return jdbc.sql(SELECT + "and p.code = :code").param("code", code).query(ProviderRepository::provider).optional();
     }
 
     // Карточка — полтора десятка запросов к таблицам групп: на горячем пути (проверка каждого платежа) — из кэша
-    @Cacheable(value = CacheNames.PROVIDER_DETAILS, unless = "#result == null")
     public Optional<ProviderDetails> details(String code) {
         return byCode(code).map(p -> new ProviderDetails(p, fields(p.id()), nominals(p.id()), gov(p.id()).orElse(null),
                 transport(p.id()), game(p.id()), foreignMobile(p.id()),

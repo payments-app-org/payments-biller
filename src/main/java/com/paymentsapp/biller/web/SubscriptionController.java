@@ -3,6 +3,9 @@ package com.paymentsapp.biller.web;
 import com.paymentsapp.biller.provider.Provider;
 import com.paymentsapp.biller.subscription.Subscription;
 import com.paymentsapp.biller.subscription.SubscriptionService;
+import jakarta.validation.Valid;
+import jakarta.validation.constraints.NotBlank;
+import jakarta.validation.constraints.Size;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
@@ -31,7 +34,7 @@ public class SubscriptionController {
 
     // «Выберите категорию»: поставщики, которые выставляют счета
     @GetMapping("/subscription-providers")
-    public List<Provider> providers(@RequestParam(required = false) String region) {
+    public List<Provider> providers(@RequestParam(required = false) @Size(max = 40) String region) {
         return subscriptions.eligible(region);
     }
 
@@ -46,12 +49,12 @@ public class SubscriptionController {
     }
 
     @PostMapping("/subscriptions")
-    public Subscription.WithBills create(@RequestHeader("X-User-Id") UUID userId, @RequestBody Request req) {
+    public Subscription.WithBills create(@RequestHeader("X-User-Id") UUID userId, @Valid @RequestBody Request req) {
         return subscriptions.create(userId, req.providerCode(), req.name(), req.fields());
     }
 
     @PutMapping("/subscriptions/{id}")
-    public Subscription.WithBills update(@RequestHeader("X-User-Id") UUID userId, @PathVariable UUID id, @RequestBody Request req) {
+    public Subscription.WithBills update(@RequestHeader("X-User-Id") UUID userId, @PathVariable UUID id, @Valid @RequestBody Request req) {
         return subscriptions.update(userId, id, req.name(), req.fields());
     }
 
@@ -61,6 +64,7 @@ public class SubscriptionController {
         return ResponseEntity.noContent().build();
     }
 
-    public record Request(String providerCode, String name, Map<String, String> fields) {
+    public record Request(@NotBlank @Size(max = 40) String providerCode, @Size(max = 100) String name,
+                          @Size(max = 20) Map<String, @Size(max = 200) String> fields) {
     }
 }

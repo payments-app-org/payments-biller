@@ -2,11 +2,14 @@ package com.paymentsapp.biller.web;
 
 import com.paymentsapp.biller.catalog.Catalog.Country;
 import com.paymentsapp.biller.catalog.Catalog.CountryDetails;
+import com.paymentsapp.biller.catalog.Catalog.CountryMethod;
 import com.paymentsapp.biller.catalog.Catalog.Method;
 import com.paymentsapp.biller.catalog.Catalog.MethodDetails;
 import com.paymentsapp.biller.catalog.CatalogRepository;
 import com.paymentsapp.biller.error.BillerError;
 import com.paymentsapp.platform.error.DomainException;
+import jakarta.validation.constraints.Pattern;
+import jakarta.validation.constraints.Size;
 import java.util.List;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -26,14 +29,15 @@ public class CatalogController {
     }
 
     @GetMapping("/countries")
-    public List<Country> countries(@RequestParam(required = false) String q) {
+    public List<Country> countries(@RequestParam(required = false) @Size(max = 100) String q) {
         return catalog.countries(q);
     }
 
     @GetMapping("/countries/{code}")
-    public CountryDetails country(@PathVariable String code) {
+    public CountryDetails country(@PathVariable @Pattern(regexp = "[A-Za-z]{2}", message = "код страны — две латинские буквы") String code) {
         Country country = catalog.country(code).orElseThrow(() -> notFound(BillerError.COUNTRY_NOT_FOUND));
-        return new CountryDetails(country, catalog.methods(country.code()));
+        return new CountryDetails(country, catalog.methods(country.code()).stream()
+                .map(m -> CountryMethod.of(m, catalog.fields(m.templateCode()))).toList());
     }
 
     // Способ перевода с валютами страны и полями, которые нужно заполнить

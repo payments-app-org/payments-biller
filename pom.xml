@@ -31,7 +31,7 @@
             <artifactId>platform</artifactId>
             <version>${platform.version}</version>
         </dependency>
-        <!-- Redis: блокировки планировщиков (ShedLock), кэш -->
+        <!-- Redis: блокировки планировщиков (ShedLock) -->
         <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-data-redis</artifactId>

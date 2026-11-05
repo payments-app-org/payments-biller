@@ -5,6 +5,7 @@ import com.paymentsapp.biller.provider.Provider;
 import com.paymentsapp.biller.provider.ProviderDetails;
 import com.paymentsapp.biller.provider.ProviderRepository;
 import com.paymentsapp.platform.error.DomainException;
+import jakarta.validation.constraints.Size;
 import java.util.List;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -24,8 +25,9 @@ public class ProviderController {
     }
 
     @GetMapping("/providers")
-    public List<Provider> search(@RequestParam(required = false) String q, @RequestParam(required = false) String group,
-                                 @RequestParam(required = false) String region) {
+    public List<Provider> search(@RequestParam(required = false) @Size(max = 100) String q,
+                                 @RequestParam(required = false) @Size(max = 40) String group,
+                                 @RequestParam(required = false) @Size(max = 40) String region) {
         return providers.search(q, group, region);
     }
 
@@ -36,14 +38,14 @@ public class ProviderController {
     }
 
     @GetMapping("/providers/{code}")
-    public ProviderDetails provider(@PathVariable String code) {
+    public ProviderDetails provider(@PathVariable @Size(max = 40) String code) {
         return providers.details(code)
                 .orElseThrow(() -> new DomainException(BillerError.PROVIDER_NOT_FOUND));
     }
 
     // +7 996 448-80-61 → Yota. Номер — 10 цифр после +7, мобильные коды начинаются на 9.
     @GetMapping("/mobile/operator")
-    public Provider mobileOperator(@RequestParam String phone) {
+    public Provider mobileOperator(@RequestParam @Size(max = 20) String phone) {
         String digits = phone.replaceAll("\\D", "");
         if (digits.length() == 11 && (digits.startsWith("7") || digits.startsWith("8"))) {
             digits = digits.substring(1);

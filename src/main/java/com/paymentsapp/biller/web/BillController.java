@@ -9,6 +9,12 @@ import com.paymentsapp.biller.bill.InvoiceRepository.Invoice;
 import com.paymentsapp.biller.bill.InvoiceService;
 import com.paymentsapp.biller.error.BillerError;
 import com.paymentsapp.platform.error.DomainException;
+import jakarta.validation.Valid;
+import jakarta.validation.constraints.Digits;
+import jakarta.validation.constraints.NotBlank;
+import jakarta.validation.constraints.NotNull;
+import jakarta.validation.constraints.Positive;
+import jakarta.validation.constraints.Size;
 import java.math.BigDecimal;
 import java.util.List;
 import java.util.Map;
@@ -37,20 +43,21 @@ public class BillController {
 
     // «Найти»: счета у поставщика по полям поиска (stage = SEARCH)
     @PostMapping("/invoices/search")
-    public List<Invoice> searchInvoices(@RequestBody SearchRequest req) {
+    public List<Invoice> searchInvoices(@Valid @RequestBody SearchRequest req) {
         return invoices.search(req.providerCode(), req.fields());
     }
 
-    public record SearchRequest(String providerCode, Map<String, String> fields) {
+    public record SearchRequest(@NotBlank @Size(max = 40) String providerCode,
+                                @Size(max = 20) Map<String, @Size(max = 200) String> fields) {
     }
 
     @PostMapping("/bills/check")
-    public BillCheck check(@RequestBody BillCheckRequest req) {
+    public BillCheck check(@Valid @RequestBody BillCheckRequest req) {
         return bills.check(req);
     }
 
     @PostMapping("/payments")
-    public GatewayResult pay(@RequestBody PayRequest req) {
+    public GatewayResult pay(@Valid @RequestBody PayRequest req) {
         return payments.pay(req.paymentId(), req.providerCode(), req.amount(), req.fields() == null ? Map.of() : req.fields());
     }
 
@@ -60,6 +67,8 @@ public class BillController {
                 .orElseThrow(() -> new DomainException(BillerError.BILL_PAYMENT_NOT_FOUND));
     }
 
-    public record PayRequest(UUID paymentId, String providerCode, BigDecimal amount, Map<String, String> fields) {
+    public record PayRequest(@NotNull UUID paymentId, @NotBlank @Size(max = 40) String providerCode,
+                             @NotNull @Positive @Digits(integer = 15, fraction = 2) BigDecimal amount,
+                             @Size(max = 20) Map<String, @Size(max = 200) String> fields) {
     }
 }
